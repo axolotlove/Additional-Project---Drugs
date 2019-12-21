@@ -1,0 +1,248 @@
+---
+title: "Additional_Project-Drugs"
+author: "Alexeev Dmitry"
+date: "12/21/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(data.table)
+```
+
+## Подготовка данных
+
+Чтобы собрать все данные из разных csv файлов в единый датафрейм была использована функция rbindlist. 
+
+```{r}
+filenames <- list.files("~/R/Statistics-and-R-programming/data/Data_additional/Data/", pattern="*.csv", full.names=TRUE)
+data <- rbindlist(lapply(filenames,fread))
+```
+
+На выходе мы получили датафрейм из 200 наблюдений по 7ми переменным.
+
+```{r}
+str(data)
+```
+
+Чтобы привести данные в соответствие с концепцией tidy-data, мы должны проверить корректные ли значения у наших переменных, выбрать факторные переменные и проверить датасет на выпавшие значения (NA). 
+
+Переменная gender имеет следующие варианты значений:
+```{r, echo=FALSE}
+head(as.factor(data$gender))
+```
+
+Необходимо скорректировать значения malle и задать переменную gender как фактор.
+
+```{r}
+data$gender <- gsub(data$gender, pattern = 'malle', replacement = 'male')
+data$gender <- as.factor(data$gender)
+```
+
+Проверяем значения drug_type:
+```{r, echo=FALSE}
+head(as.factor(data$drug_type))
+```
+
+Уровни переменной корректны, осталось задать её как фактор.
+
+```{r}
+data$drug_type <- as.factor(data$drug_type)
+```
+
+Проверяем значения is_relapse:
+```{r, echo=FALSE}
+head(as.factor(data$is_relapse))
+```
+
+Задаём is_relapse как фактор.
+```{r}
+data$is_relapse <- as.factor(data$is_relapse)
+```
+
+Проверяем значения age:
+```{r, echo=FALSE}
+head(as.factor(data$age))
+```
+
+Мы видим буквенные записи чисел, а также невозможные значения для возраста. В первом случае запись можно изменить на численную, во втором придётся удалять значения, так как мы не знаем, была ли это опечатка. Значения age мы переводим из character в numeric. 
+
+```{r}
+data$age <- gsub(data$age, pattern = 'thirty-one', replacement = 31)
+data <- data %>% filter(age != 220)
+data <- data %>% filter(age != 350)
+data$age <- as.numeric(as.character(data$age))
+```
+
+Так как is_relapse является фактором, то все наблюдения, содержащие NA по этой переменной необходимо удалить.
+
+```{r}
+data <- data[complete.cases(data$is_relapse), ]
+```
+
+После того как мы привели данные к формату tidy-data, где каждое значение принадлежит одному наблюдения и одной переменной, можно проверить численные переменные на нормальность распределения. Для этого можно построить графики плотности и провести шапиро-вилко тест по переменным age и days_in_hospital.
+
+```{r}
+ggplot(data, aes(days_in_hospital)) + geom_density() + theme_bw()
+ggplot(data, aes(age)) + geom_density() + theme_bw()
+shapiro.test(data$age)
+shapiro.test(data$days_in_hospital)
+```
+
+Несмотря на то, что шапиро-вилко тест даёт значения p-value < 0.05 для age, мы можем наблюдать картину нормального распределения на графике. Результаты для days_in_hospital в обоих случаях говорят о нормальности распределения.
+
+## Вычисление статистик
+
+Необходимо расчитать среднее значение и стандартное отклонение числа дней, необходимых для 
+лечения вне зависимости от пола. Для этого использовался синтаксис dplyr:
+
+```{r}
+days_mean_sd <- data %>% summarise(mean = mean(data$days_in_hospital), sd = sd(data$days_in_hospital))
+days_mean_sd
+```
+
+## Сравнение групп
+
+Визуализацию количества дней для мужчин и женщин по отдельности, которые они 
+провели в госпитале, можно с помощью синтаксиса ggplot2:
+
+```{r}
+ggplot(data, aes(x = gender, y = days_in_hospital))+
+  geom_boxplot()
+```
+
+Следующим заданием было оценить, различается ли количество дней проведенных в госпитале у 
+женщин, которые принимали плацебо или лекарство второго типа. Для начала сделаем 2 датасета для женщин, принимавших плацебо и лекарство второго типа:
+
+```{r}
+women_placebo <- data %>% filter(drug_type == 'Placebo', gender == 'female')
+women_drug2 <- data %>% filter(drug_type == 'New_type_2', gender == 'female')
+```
+
+Для сравнения групп между собой используют t-тест. Его обязательным условием является нормальность распределения выборок при количестве наблюдений меньше 30. Наши выборки мы проверяем на нормальность с помощью графика плотности, qq-plot и шапиро-вилко теста.
+
+```{r}
+plot1 <- ggplot(women_placebo, aes(days_in_hospital))+geom_density() + theme_bw()
+plot1
+qqnorm(women_placebo$days_in_hospital)
+qqline(women_placebo$days_in_hospital)
+shapiro.test(women_placebo$days_in_hospital)
+```
+
+Выборка женщин, принимавших плацебо имеет нормальное унимодальное распределение дней, проведённых в госпитале.
+
+```{r}
+plot2 <- ggplot(women_drug2, aes(days_in_hospital))+geom_density() + theme_bw()
+plot2
+qqnorm(women_drug2$days_in_hospital)
+qqline(women_drug2$days_in_hospital)
+shapiro.test(women_drug2$days_in_hospital)
+```
+
+Выборка женщин, принимавших лекарство второго типа имеет бимодальное распределение и не может быть включена в t-тест. Однако, мы можем сделать предположение о различии двух групп, построив бокс-плот и сравнив средние двух выборок. 
+
+```{r}
+women_full <- rbind(women_placebo, women_drug2)
+ggplot(women_full, aes(x = drug_type, y = days_in_hospital))+
+  geom_boxplot()
+```
+
+Как мы видим из графика, среднее значение дней в госпитале для женщин, принимавших плацебо, не входит в доверительный интервал группы женщин, принимавших лекарство второго типа и наоборот. Это нам позволяет предположить, что две группы значимо различаются между собой.
+
+Следующим заданием было определить, есть ли различия между возрастами мужчин и женщин. Для этого мы будем использовать такой же подход проверки t-теста. Для начала оценим нормальность распределения мужчин и женщин по возрасту.
+
+```{r}
+male <- data %>% filter(gender == 'male')
+female <- data %>% filter(gender == 'female')
+plot3 <- ggplot(male, aes(age)) + geom_density() + theme_bw()
+plot3
+qqnorm(male$age)
+qqline(male$age)
+shapiro.test(male$age)
+plot4 <- ggplot(female, aes(age)) + geom_density() + theme_bw()
+plot4
+qqnorm(female$age)
+qqline(female$age)
+shapiro.test(female$age)
+```
+
+Как мы видим из графиков и результатов шапиро-вилко теста, параметр возраста распределён нормально в обеих выборках. Теперь проведём t-тест для оценки различий в возрасте между мужчинами и женщинами.
+
+```{r}
+t.test_results <- t.test(age ~ gender, data = data)
+t.test_results$p.value
+ggplot(data, aes(x = gender, y = age))+
+  geom_boxplot()
+```
+
+Результаты t-теста показывают нам, что группы мужчин и женщин достоверно не различаются по возрасту при p-value равном `r t.test_results$p.value`. То же можно видеть на графике: средние двух выборок лежат в доверительных интервалах друг друга. 
+
+## Проверка взаимосвязи
+
+Первым шагом в оценке взаимосвязи двух переменных является проверка на корреляцию. Поэтому мы проведем корреляционный тест между возрастом и количеством дней в госпитале, как начальный этап проверки взаимосвязи этих двух переменных. Тест на корреляцию Пирсона требует нормальность распределения переменных. Как мы это делали в начале отчёта, проверку на нормальность возраста и количества дней в госпитале мы проверим по графику и шапиро-вилко тесту.
+
+```{r}
+ggplot(data, aes(age)) + geom_density() + theme_bw()
+shapiro.test(data$age)
+ggplot(data, aes(days_in_hospital)) + geom_density() + theme_bw()
+shapiro.test(data$days_in_hospital)
+```
+
+Так как значения p-value шапиро-вилко теста ниже 0.05 для возраста, мы применим непараметрический критерий Спирмана для оценки корреляции. 
+
+```{r}
+cor.test(data$age, data$days_in_hospital, method = 'spearman', exact = FALSE)
+```
+
+Значение p-value для корреляционного теста показывает, что переменные возраст и количество дней в больнице не связаны между собой. Это можно наглядно посмотреть на графике.
+
+```{r}
+ggplot(data, aes(age, days_in_hospital))+geom_point()+geom_smooth(method = "lm")
+```
+
+Теперь проверим нормальность распределения и взаимосвязь возраста и времени в больнице отдельно для мужчин и женщин. 
+
+```{r}
+ggplot(male, aes(age)) + geom_density() + theme_bw()
+ggplot(male, aes(days_in_hospital)) + geom_density() + theme_bw()
+shapiro.test(male$age)
+shapiro.test(male$days_in_hospital)
+```
+
+В случае мужчин мы видим сильный скос на графике для дней в госпитале и значения p-value шапиро-вилко теста ниже 0.05 для этого параметра, что также указывает нам на применение 
+непараметрического теста на корреляцию.
+
+```{r}
+cor.test(male$age, male$days_in_hospital, method = 'spearman', exact = FALSE)
+```
+
+Значение p-value для корреляционного теста показывает, что переменные возраст и количество дней в больнице для мужчин не связаны между собой. Визуализация на графике:
+
+```{r}
+ggplot(male, aes(age, days_in_hospital))+geom_point()+geom_smooth(method = "lm")
+```
+
+```{r}
+ggplot(female, aes(age)) + geom_density() + theme_bw()
+ggplot(female, aes(days_in_hospital)) + geom_density() + theme_bw()
+shapiro.test(female$age)
+shapiro.test(female$days_in_hospital)
+```
+
+Оба параметра нормально распределены для женщин, что позволяет нам применить корреляционный тест Пирсона.
+
+```{r}
+cor.test(female$age, female$days_in_hospital)
+```
+
+Значение p-value для корреляционного теста показывает, что переменные возраст и количество дней в больнице для женщин не связаны между собой. Визуализация на графике:
+
+```{r}
+ggplot(female, aes(age, days_in_hospital))+geom_point()+geom_smooth(method = "lm")
+```
